@@ -44,7 +44,7 @@
                 <option value="Clean room">Clean room</option>
             </select>
 
-            <!-- 庫存數量顯示篩選 (預設僅顯示有庫存) -->
+            <!-- 庫存數量顯示篩選 -->
             <select id="stock-status-filter" onchange="filterData()" class="p-3 border border-emerald-300 bg-emerald-50 text-emerald-800 rounded-lg text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500">
                 <option value="in_stock" selected>✅ 僅顯示有庫存 (QTY > 0)</option>
                 <option value="all">📦 顯示全部 (含 QTY = 0)</option>
@@ -76,15 +76,37 @@
         <!-- 頁尾資訊 -->
         <div class="flex justify-between items-center mt-4 text-xs text-slate-400">
             <span id="data-count">載入中...</span>
-            <span>※ 工程師專用查詢介面</span>
+            <span>※ 工程師專用查詢介面 (按 Location 順序排列)</span>
         </div>
     </div>
 
     <script>
-        // 指定您的 Google 試算表 CSV 讀取連結
         const csvUrl = 'https://docs.google.com/spreadsheets/d/1hND5f2twITUn2386YzICVKhMEQ5WVpswrnvILJHDrTQ/gviz/tq?tqx=out:csv';
 
         let allInventory = [];
+
+        // Location 順序權重表
+        const locationOrder = {
+            'S1': 1,
+            'S2': 2,
+            'S3': 3,
+            'S4': 4,
+            'S5': 5,
+            'S6': 6,
+            'DRY BOX': 7,
+            'CLEAN ROOM': 8
+        };
+
+        function getLocationRank(locStr) {
+            if (!locStr) return 99;
+            const upper = locStr.trim().toUpperCase();
+            for (let key in locationOrder) {
+                if (upper.includes(key)) {
+                    return locationOrder[key];
+                }
+            }
+            return 90; // 未知的其他位置排在最後面
+        }
 
         function loadData() {
             const tbody = document.getElementById('table-body');
@@ -95,7 +117,7 @@
                 header: true,
                 complete: function(results) {
                     allInventory = results.data;
-                    filterData(); // 讀取完畢後自動進行篩選渲染
+                    filterData();
                 },
                 error: function(err) {
                     tbody.innerHTML = '<tr><td colspan="6" class="py-8 text-center text-rose-500">無法讀取資料，請確定 Google Sheet 已開啟「知道連結的人即可檢視」。</td></tr>';
@@ -103,7 +125,6 @@
             });
         }
 
-        // 通用自動捕捉屬性值函式 (解決欄位命名大小寫或微小差異)
         function getRowValue(row, keys) {
             for (let k of keys) {
                 for (let prop in row) {
@@ -129,7 +150,6 @@
                 const rawQty = getRowValue(row, ['QTY', 'QTY.1', '數量']);
                 const qty = parseInt(rawQty) || 0;
 
-                // 排除無效標頭或完全空白列
                 const isValidRow = (name && name.trim() !== '' && name.toLowerCase() !== 'parts name') || 
                                  (pn && pn.trim() !== '' && pn.toLowerCase() !== 'p/n (if any)');
 
@@ -138,9 +158,9 @@
                 // 1. 庫存數量過濾
                 let matchesStock = true;
                 if (stockStatusFilter === 'in_stock') {
-                    matchesStock = qty > 0; // 只看有庫存
+                    matchesStock = qty > 0;
                 } else if (stockStatusFilter === 'out_of_stock') {
-                    matchesStock = qty <= 0; // 只看缺貨
+                    matchesStock = qty <= 0;
                 }
 
                 // 2. 關鍵字過濾
@@ -156,58 +176,12 @@
                 return isValidRow && matchesStock && matchesKeyword && matchesLocation;
             });
 
-            renderTable(filtered);
-        }
+            // 🌟 按照 Location (S1 -> S2 -> S3 -> S4 -> S5 -> S6 -> DRY BOX -> Clean room) 排序
+            filtered.sort((a, b) => {
+                const locA = getRowValue(a, ['Location', 'Dry Box', '位置']);
+                const locB = getRowValue(b, ['Location', 'Dry Box', '位置']);
+                const rankA = getLocationRank(locA);
+                const rankB = getLocationRank(locB);
 
-        function renderTable(data) {
-            const tbody = document.getElementById('table-body');
-            tbody.innerHTML = '';
-
-            document.getElementById('data-count').textContent = `共搜尋到 ${data.length} 筆備品`;
-
-            if (data.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" class="py-8 text-center text-slate-400">目前無符合條件之備品 (可能皆已無庫存或無搜尋結果)</td></tr>';
-                return;
-            }
-
-            data.forEach(row => {
-                const location = getRowValue(row, ['Location', 'Dry Box', '位置']) || '-';
-                const pn = getRowValue(row, ['P/N (If any)', 'P/N', '料號']) || '-';
-                const name = getRowValue(row, ['Parts Name', 'PartsName', 'Description', '品名']) || '未命名項目';
-                const rawQty = getRowValue(row, ['QTY', 'QTY.1', '數量']);
-                const qty = parseInt(rawQty) || 0;
-                const model = getRowValue(row, ['Model', '機型']) || '-';
-                const remark = getRowValue(row, ['Remarks', 'Remark', '備註']) || '-';
-
-                const isLow = qty <= 0;
-
-                const tr = document.createElement('tr');
-                tr.className = "hover:bg-slate-50 transition";
-                tr.innerHTML = `
-                    <td class="py-3 px-4"><span class="px-2.5 py-1 rounded-md text-xs font-semibold ${getLocationBadge(location)}">${location}</span></td>
-                    <td class="py-3 px-4 font-mono text-xs text-slate-600">${pn}</td>
-                    <td class="py-3 px-4 font-bold text-slate-800">${name}</td>
-                    <td class="py-3 px-4 text-center font-bold text-base ${isLow ? 'text-rose-500' : 'text-emerald-600'}">
-                        ${qty}
-                    </td>
-                    <td class="py-3 px-4 text-xs text-slate-500">${model}</td>
-                    <td class="py-3 px-4 text-xs text-slate-500">${remark}</td>
-                `;
-                tbody.appendChild(tr);
-            });
-        }
-
-        function getLocationBadge(loc) {
-            loc = loc.toUpperCase();
-            if(loc.includes('S1') || loc.includes('S2')) return 'bg-blue-50 text-blue-700 border border-blue-200';
-            if(loc.includes('S3') || loc.includes('S4')) return 'bg-indigo-50 text-indigo-700 border border-indigo-200';
-            if(loc.includes('DRY')) return 'bg-amber-50 text-amber-700 border border-amber-200';
-            if(loc.includes('CLEAN')) return 'bg-emerald-50 text-emerald-700 border border-emerald-200';
-            return 'bg-slate-100 text-slate-700';
-        }
-
-        // 初次自動載入資料
-        loadData();
-    </script>
-</body>
-</html>
+                if (rankA !== rankB) {
+                    return rankA - rankB

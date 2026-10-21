@@ -6,7 +6,7 @@
     <title>PTW TW 備品庫存即時查詢系統</title>
     <!-- Tailwind CSS 樣式 -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- PapaParse 試算表解析工具 -->
+    <!-- PapaParse 解析工具 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
 </head>
 <body class="bg-slate-100 min-h-screen p-4 sm:p-6">
@@ -27,7 +27,7 @@
         <!-- 搜尋與庫房位置下拉選單 -->
         <div class="flex flex-col sm:flex-row gap-3 mb-6">
             <input type="text" id="search-input" oninput="filterData()" 
-                   placeholder="🔍 輸入品名 (Parts Name)、料號 (P/N)、適用機型 (Model) 或 備註 (Remarks) 搜尋..." 
+                   placeholder="🔍 輸入品名 (Parts Name)、料號 (P/N)、機型 (Model) 或 備註 (Remarks) 搜尋..." 
                    class="flex-1 p-3 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm">
             
             <select id="location-filter" onchange="filterData()" class="p-3 border border-slate-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
@@ -72,7 +72,7 @@
     </div>
 
     <script>
-        // 指定您的新 Google 試算表 CSV 讀取連結 (專抓第一頁)
+        // 您的 Google 試算表 CSV 讀取連結
         const csvUrl = 'https://docs.google.com/spreadsheets/d/1hND5f2twITUn2386YzICVKhMEQ5WVpswrnvILJHDrTQ/gviz/tq?tqx=out:csv';
 
         let allInventory = [];
@@ -94,32 +94,47 @@
             });
         }
 
+        // 通用自動搜尋屬性值函式 (解決欄位大小寫或命名些微差異)
+        function getRowValue(row, keys) {
+            for (let k of keys) {
+                for (let prop in row) {
+                    if (prop.trim().toLowerCase() === k.toLowerCase()) {
+                        return row[prop];
+                    }
+                }
+            }
+            return '';
+        }
+
         function renderTable(data) {
             const tbody = document.getElementById('table-body');
             tbody.innerHTML = '';
 
-            // 過濾掉標頭或空白列
+            // 超級強大的欄位自動捕捉功能
             const validData = data.filter(row => {
-                const name = row['Parts Name'] || row['PartsName'] || row['Description'] || '';
-                return name.trim() !== '' && name !== 'Parts Name';
+                const name = getRowValue(row, ['Parts Name', 'PartsName', 'Description', '品名']);
+                const location = getRowValue(row, ['Location', 'Dry Box', '位置']);
+                const pn = getRowValue(row, ['P/N (If any)', 'P/N', '料號']);
+                return (name && name.trim() !== '' && name.toLowerCase() !== 'parts name') || 
+                       (pn && pn.trim() !== '' && pn.toLowerCase() !== 'p/n (if any)');
             });
 
             document.getElementById('data-count').textContent = `共搜尋到 ${validData.length} 筆備品`;
 
             if (validData.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" class="py-8 text-center text-slate-400">查無對應之庫存備品</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" class="py-8 text-center text-slate-400">連線成功，但 Google Sheet 第一頁找不到庫存資料，請確認資料有從第 1 列開始。</td></tr>';
                 return;
             }
 
             validData.forEach(row => {
-                const location = row['Location'] || row['Dry Box'] || '-';
-                const pn = row['P/N (If any)'] || row['P/N'] || '-';
-                const name = row['Parts Name'] || row['PartsName'] || row['Description'] || '未命名項目';
-                const qty = row['QTY'] || row['QTY.1'] || '0';
-                const model = row['Model'] || '-';
-                const remark = row['Remarks'] || row['Remark'] || '-';
+                const location = getRowValue(row, ['Location', 'Dry Box', '位置']) || '-';
+                const pn = getRowValue(row, ['P/N (If any)', 'P/N', '料號']) || '-';
+                const name = getRowValue(row, ['Parts Name', 'PartsName', 'Description', '品名']) || '未命名項目';
+                const qty = getRowValue(row, ['QTY', 'QTY.1', '數量']) || '0';
+                const model = getRowValue(row, ['Model', '機型']) || '-';
+                const remark = getRowValue(row, ['Remarks', 'Remark', '備註']) || '-';
 
-                const isLow = parseInt(qty) <= 0;
+                const isLow = parseInt(qty) <= 0 || isNaN(parseInt(qty));
 
                 const tr = document.createElement('tr');
                 tr.className = "hover:bg-slate-50 transition";
@@ -151,11 +166,11 @@
             const locationFilter = document.getElementById('location-filter').value.toLowerCase();
 
             const filtered = allInventory.filter(row => {
-                const loc = (row['Location'] || row['Dry Box'] || '').toLowerCase();
-                const pn = (row['P/N (If any)'] || row['P/N'] || '').toLowerCase();
-                const name = (row['Parts Name'] || row['PartsName'] || row['Description'] || '').toLowerCase();
-                const model = (row['Model'] || '').toLowerCase();
-                const remark = (row['Remarks'] || row['Remark'] || '').toLowerCase();
+                const loc = (getRowValue(row, ['Location', 'Dry Box', '位置']) || '').toLowerCase();
+                const pn = (getRowValue(row, ['P/N (If any)', 'P/N', '料號']) || '').toLowerCase();
+                const name = (getRowValue(row, ['Parts Name', 'PartsName', 'Description', '品名']) || '').toLowerCase();
+                const model = (getRowValue(row, ['Model', '機型']) || '').toLowerCase();
+                const remark = (getRowValue(row, ['Remarks', 'Remark', '備註']) || '').toLowerCase();
 
                 const matchesKeyword = loc.includes(keyword) || pn.includes(keyword) || name.includes(keyword) || model.includes(keyword) || remark.includes(keyword);
                 const matchesLocation = locationFilter === '' || loc.includes(locationFilter);
